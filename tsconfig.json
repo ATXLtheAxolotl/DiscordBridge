@@ -6,7 +6,7 @@
       "outDir": "dist",
       "baseUrl": ".",
       "target": "es2020",
-      "strictNullChecks": false,
+      "strictNullChecks": true,
       "rootDir": "src",
       "moduleResolution": "node",
       "allowSyntheticDefaultImports": true,
