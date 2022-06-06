@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { PluginApi } from "./@interface/pluginApi.i";
 import {
   Client,
@@ -13,18 +14,6 @@ import { Routes } from 'discord-api-types/v9';
 
 const { token, channelId, clientId, guildId, AutoConnect, realmName, logMessageEvents } = require("../config.json");
 
-function getSavedPic(eventXuid){
-    const tempPicMap = {
-        2533274884028261: "https://cdn.discordapp.com/avatars/269249777185718274/a_f7a7df655ec0c612ec4e42094adc1903.png"
-    }
-    if (eventXuid in tempPicMap) {
-	    return tempPicMap[eventXuid]
-	} else {
-	    return "https://i.imgur.com/7ltWLoa.png"
-	}
-}
-
-
 class DiscBot {
     private api: PluginApi
     private commandMap: Map<string, CallableFunction>
@@ -34,6 +23,8 @@ class DiscBot {
     private messageQueue: { message:string, channel?:string }[] = []
     private embedQueue: { embed: MessageEmbed[], channel?:string }[] = []
     private commandQueue: DiscordCommand[] = []
+    private rawCommandQueue: SlashCommandBuilder[] = []
+
     constructor(api: PluginApi) {
         this.api = api;
         this.client = new Client({
@@ -71,6 +62,7 @@ class DiscBot {
         client.login(token);
 	this.api.getLogger().info("Discord-MC Bridge login complete.");
         client.on("ready", async () => {
+            
             this.ready = true;
             if(this.messageQueue.length > 0) this.messageQueue.forEach(({message, channel}) => this.sendMessage(message, channel));
             if(this.embedQueue.length > 0) this.embedQueue.forEach(({embed, channel}) => this.sendEmbed(embed, channel));
@@ -137,7 +129,6 @@ class DiscBot {
                 .setColor("#00ff00")
 				.setTitle("__Player connected!__")
                 .setDescription(`**${userJoin.getName()}** has joined the realm\nXUID: [${eventXuid}]\nDevice: ${userJoin.getDevice()}`)
-				.setImage(getSavedPic(eventXuid));
             return this.sendEmbed([Join]);
         });
 /**		this.api.getEventManager().on("PlayerDied", (userDied) => {
@@ -203,10 +194,16 @@ class DiscBot {
             return;
         };
         if(this.commandMap.has(command.name)) return this.api.getLogger().error(`${command.name} has already been registered!`)
-        this.commandArray.push(
-            new SlashCommandBuilder()
+        const _command = new SlashCommandBuilder()
         .setName(command.name)
         .setDescription(command.description)
+        if(command.options) {
+            for(var i = 0; i < command.options.length; i++) {
+                _command.addStringOption(input => input.setName(command.options[i].name).setDescription(command.options[i].description).setRequired(command.options[i].required));
+            }
+        }
+        this.commandArray.push(
+            _command
         );
         const commands = this.commandArray.map((command) => command.toJSON());
         this.api.getLogger().info(`Attempting to register "${command.name}"`)
@@ -227,6 +224,31 @@ class DiscBot {
             })();
     }
 
+    public registerRawCommand(command: SlashCommandBuilder, response: (interaction: Interaction) => void): void {
+        if(!this.ready) {
+            this.rawCommandQueue.push(command)
+            return;
+        };
+        if(this.commandMap.has(command.name)) return this.api.getLogger().error(`${command.name} has already been registered!`)
+        this.commandArray.push(command);
+        const commands = this.commandArray.map((command) => command.toJSON());
+        this.api.getLogger().info(`Attempting to register "${command.name}"`)
+            const rest = new REST({ version: "9" }).setToken(token);
+            (async () => {
+                try {
+                    await rest.put(Routes.applicationGuildCommands(clientId, guildId), {
+                        body: commands,
+                    });
+                    this.api
+                        .getLogger()
+                        .success(`Successfully registered "${command.name}".`);
+                    this.commandMap.set(command.name, response);
+                }
+                catch (error) {
+                    this.api.getLogger().error(`Error occurred while attempting to register "${command.name}" command`, error);
+                }
+            })();
+    }
 
     public getClient(): Client {
         return this.client;
@@ -239,4 +261,11 @@ interface DiscordCommand {
     name: string;
     description: string;
     response: (interaction: Interaction) => void;
+    options?: DiscordOption[];
+}
+
+interface DiscordOption {
+    name: string;
+    description: string;
+    required: boolean;
 }
