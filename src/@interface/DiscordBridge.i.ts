@@ -31,4 +31,11 @@ interface DiscordCommand {
   name: string;
   description: string;
   response: (interaction: any) => void;
+  options?: DiscordOption[];
+}
+
+interface DiscordOption {
+  name: string;
+  description: string;
+  required: boolean;
 }
